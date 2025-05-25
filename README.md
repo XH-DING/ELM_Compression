@@ -12,6 +12,7 @@ make
 make install
 ```
 * SZ2
+  
   https://github.com/szcompressor/SZ (Installation way 1 is needed)
 
 ### Install PnetCDF(chunk branch)
@@ -72,6 +73,6 @@ ncks -d time,0,127 ./daymet4_2d_cdf5/clmforc.Daymet4.1km.FLDS.2014-01.nc ./dayme
 
 ### Related Links
 How to quickly know about netCDF?
-https://docs.unidata.ucar.edu/netcdf-c/current/index.html
-https://unidata.github.io/netcdf4-python/#introduction
+https://docs.unidata.ucar.edu/netcdf-c/current/index.html  
+https://unidata.github.io/netcdf4-python/#introduction  
 https://pro.arcgis.com/en/pro-app/latest/help/data/multidimensional/what-is-netcdf-data.html
