@@ -10,13 +10,16 @@ cd zlib-1.2.13
 ./configure --prefix=/zlib/install/path
 make
 make install
+## All other dependencies are recommended to be installed from source, using a similar procedure.
 ```
 * SZ2
   
   https://github.com/szcompressor/SZ (Installation way 1 is needed)
 
 ### Install PnetCDF(chunk branch)
-https://github.com/Parallel-NetCDF/PnetCDF/tree/chunk
+Reference: 
+https://github.com/Parallel-NetCDF/PnetCDF/tree/chunk  
+https://github.com/Parallel-NetCDF/PnetCDF/blob/chunk/doc/README.Chunk.md
 
 Environment requirements:
 ```
