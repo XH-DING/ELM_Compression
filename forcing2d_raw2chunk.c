@@ -45,7 +45,12 @@ nc2mpitype(nc_type xtype)
      MPI_Init(&argc, &argv);
      MPI_Comm_rank(MPI_COMM_WORLD, &rank);
      MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
- 
+     
+    //  volatile int attached = 0;
+    //  while (!attached) {
+    //     sleep(1); // Wait for all processes to attach
+    //     if (getenv("DEBUG_READY")) attached = 1;
+    //  }
      if (argc != 3) {
          if (rank == 0) {
              printf("Usage: %s <input_file> <output_file>\n", argv[0]);
@@ -102,10 +107,11 @@ nc2mpitype(nc_type xtype)
          printf("Output file: %s\n", output_file);
      }
      
+     printf("1111\n");
      // Open input file
      ret = ncmpi_open(MPI_COMM_WORLD, input_file, NC_NOWRITE, MPI_INFO_NULL, &ncid_in);
      ERR(ret);
-     
+    //  printf("****\n");
      // Get file information
      ret = ncmpi_inq(ncid_in, &ndims, &nvars, &natts, &unlimdimid);
      ERR(ret);
@@ -154,7 +160,7 @@ nc2mpitype(nc_type xtype)
      // Create output file
      ret = ncmpi_create(MPI_COMM_WORLD, output_file, NC_CLOBBER, info, &ncid_out);
      ERR(ret);
-     
+    //  printf("2222\n");
      // Define dimensions in output file
      int out_dim_ids[MAX_DIMS];
      for (int i = 0; i < ndims; i++) {
@@ -221,8 +227,8 @@ nc2mpitype(nc_type xtype)
              main_var_id = i;
              out_main_var_id = out_var_ids[i];
              int chunk_dim[3] = {1, dim_lens[1], dim_lens[2]};
-            //  ret = ncmpi_var_set_chunk(ncid_out, out_main_var_id, chunk_dim);
-            //  ERR(ret);
+             ret = ncmpi_var_set_chunk(ncid_out, out_main_var_id, chunk_dim);
+             ERR(ret);
             //  ret = ncmpi_var_set_filter(ncid_out, out_main_var_id, NC_FILTER_SZ);
             //  ERR(ret);
              if (rank == 0) {
@@ -230,17 +236,18 @@ nc2mpitype(nc_type xtype)
              }
          }
          else {
-            int chunk_dim[var_ndims];
-            // 获取每个维度长度
-            for (int d = 0; d < var_ndims; d++) {
-                chunk_dim[d] = dim_lens[var_dimids[d]];
-            }
-            // 设置 chunk 大小
-            // ret = ncmpi_var_set_chunk(ncid_out, out_var_ids[i], chunk_dim);
-            // ret = ncmpi_var_set_filter(ncid_out, out_var_ids[i], NC_FILTER_NONE);
-             if (rank == 0) {
-                 printf("Found variable %s with ID %d\n", var_names[i], i);
-             }
+            continue; // Skip other variables for now
+            // int chunk_dim[var_ndims];
+            // // 获取每个维度长度
+            // for (int d = 0; d < var_ndims; d++) {
+            //     chunk_dim[d] = dim_lens[var_dimids[d]];
+            // }
+            // // 设置 chunk 大小
+            // // ret = ncmpi_var_set_chunk(ncid_out, out_var_ids[i], chunk_dim);
+            // // ret = ncmpi_var_set_filter(ncid_out, out_var_ids[i], NC_FILTER_NONE);
+            //  if (rank == 0) {
+            //      printf("Found variable %s with ID %d\n", var_names[i], i);
+            //  }
          }
          
          // Copy variable attributes
@@ -279,7 +286,7 @@ nc2mpitype(nc_type xtype)
      // End define mode for output file
      ret = ncmpi_enddef(ncid_out);
      ERR(ret);
-
+     printf("3333\n");
      // Process the main variable by distributing time steps
      int main_var_ndims;
      int main_var_dimids[MAX_DIMS];
@@ -287,7 +294,7 @@ nc2mpitype(nc_type xtype)
      
      ret = ncmpi_inq_var(ncid_in, main_var_id, NULL, &main_var_type, &main_var_ndims, main_var_dimids, NULL);
      ERR(ret);
-     printf("type %d\n", main_var_type);
+    //  printf("type %d\n", main_var_type);
 
      // Find the time dimension in the main variable
      int time_dim_index = -1;
@@ -415,116 +422,126 @@ nc2mpitype(nc_type xtype)
     //     for (j=0; j<7814; j++)
     //         for (k=0; k<4; k++)
     //             new_buffer[k][i][j] = 0.0;
-
+    double write_start_time, write_end_time, write_time, total_write_time;
+    write_start_time = MPI_Wtime();
+    printf("vvvvv\n");
      ret = ncmpi_put_vara_all(ncid_out, out_main_var_id, start, count, buffer, buffer_size, nc2mpitype(main_var_type));
      ERR(ret);
+     printf("wwwww\n");
     //  ret = ncmpi_put_vara_float_all(ncid_out, out_main_var_id, start, count, buffer);
     //  ERR(ret);
-
+    write_end_time = MPI_Wtime();
+    write_time = write_end_time - write_start_time;
+    /* 使用MPI_Reduce收集所有进程的计算时间，取最大值 */
+    MPI_Reduce(&write_time, &total_write_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+     if (rank == 0) {
+        printf("总写入时间: %.4f 秒\n", total_write_time);
+     }
+     printf("Rank: %d, Write Time: %.4f\n", rank, write_time);
      free(buffer);
      
-     // Copy other variables
-     for (int i = 0; i < nvars; i++) {
-         if (i == main_var_id) {
-             continue; // Skip the main variable (already processed)
-         }
+    //  // Copy other variables
+    //  for (int i = 0; i < nvars; i++) {
+    //      if (i == main_var_id) {
+    //          continue; // Skip the main variable (already processed)
+    //      }
          
-         // Get variable info
-         int var_ndims;
-         int var_dimids[MAX_DIMS];
-         nc_type var_type;
+    //      // Get variable info
+    //      int var_ndims;
+    //      int var_dimids[MAX_DIMS];
+    //      nc_type var_type;
          
-         ret = ncmpi_inq_var(ncid_in, i, NULL, &var_type, &var_ndims, var_dimids, NULL);
-         ERR(ret);
+    //      ret = ncmpi_inq_var(ncid_in, i, NULL, &var_type, &var_ndims, var_dimids, NULL);
+    //      ERR(ret);
          
-         // Check if variable has time dimension
-         int has_time_dim = 0;
-         int time_index = -1;
-         for (int j = 0; j < var_ndims; j++) {
-             if (var_dimids[j] == time_dim_id) {
-                 has_time_dim = 1;
-                 time_index = j;
-                 break;
-             }
-         }
+    //      // Check if variable has time dimension
+    //      int has_time_dim = 0;
+    //      int time_index = -1;
+    //      for (int j = 0; j < var_ndims; j++) {
+    //          if (var_dimids[j] == time_dim_id) {
+    //              has_time_dim = 1;
+    //              time_index = j;
+    //              break;
+    //          }
+    //      }
          
-         // Prepare start and count arrays
-         MPI_Offset var_start[MAX_DIMS], var_count[MAX_DIMS];
-         for (int j = 0; j < var_ndims; j++) {
-             if (has_time_dim && j == time_index) {
-                 var_start[j] = start_time;
-                 var_count[j] = count_time;
-             } else {
-                 var_start[j] = 0;
-                 var_count[j] = dim_lens[var_dimids[j]];
-             }
-         }
+    //      // Prepare start and count arrays
+    //      MPI_Offset var_start[MAX_DIMS], var_count[MAX_DIMS];
+    //      for (int j = 0; j < var_ndims; j++) {
+    //          if (has_time_dim && j == time_index) {
+    //              var_start[j] = start_time;
+    //              var_count[j] = count_time;
+    //          } else {
+    //              var_start[j] = 0;
+    //              var_count[j] = dim_lens[var_dimids[j]];
+    //          }
+    //      }
          
-         // Calculate buffer size
-         MPI_Offset var_buffer_size = 1;
-         for (int j = 0; j < var_ndims; j++) {
-             var_buffer_size *= var_count[j];
-         }
+    //      // Calculate buffer size
+    //      MPI_Offset var_buffer_size = 1;
+    //      for (int j = 0; j < var_ndims; j++) {
+    //          var_buffer_size *= var_count[j];
+    //      }
 
-         // Allocate buffer
-         void *var_buffer = NULL;
-         switch (var_type) {
-             case NC_BYTE:
-             case NC_CHAR:
-                 var_buffer = malloc(var_buffer_size * sizeof(char));
-                 break;
-             case NC_SHORT:
-                 var_buffer = malloc(var_buffer_size * sizeof(short));
-                 break;
-             case NC_INT:
-                 var_buffer = malloc(var_buffer_size * sizeof(int));
-                 break;
-             case NC_FLOAT:
-                 var_buffer = malloc(var_buffer_size * sizeof(float));
-                 break;
-             case NC_DOUBLE:
-                 var_buffer = malloc(var_buffer_size * sizeof(double));
-                 break;
-             default:
-                 if (rank == 0) {
-                     printf("Error: Unsupported variable type %d for variable %s\n", var_type, var_names[i]);
-                 }
-                 continue;
-         }
+    //      // Allocate buffer
+    //      void *var_buffer = NULL;
+    //      switch (var_type) {
+    //          case NC_BYTE:
+    //          case NC_CHAR:
+    //              var_buffer = malloc(var_buffer_size * sizeof(char));
+    //              break;
+    //          case NC_SHORT:
+    //              var_buffer = malloc(var_buffer_size * sizeof(short));
+    //              break;
+    //          case NC_INT:
+    //              var_buffer = malloc(var_buffer_size * sizeof(int));
+    //              break;
+    //          case NC_FLOAT:
+    //              var_buffer = malloc(var_buffer_size * sizeof(float));
+    //              break;
+    //          case NC_DOUBLE:
+    //              var_buffer = malloc(var_buffer_size * sizeof(double));
+    //              break;
+    //          default:
+    //              if (rank == 0) {
+    //                  printf("Error: Unsupported variable type %d for variable %s\n", var_type, var_names[i]);
+    //              }
+    //              continue;
+    //      }
          
-         if (var_buffer == NULL) {
-             printf("Error: Failed to allocate buffer of size %lld bytes for variable %s on process %d\n", 
-                    var_buffer_size * sizeof(double), var_names[i], rank);
-             continue;
-         }
+    //      if (var_buffer == NULL) {
+    //          printf("Error: Failed to allocate buffer of size %lld bytes for variable %s on process %d\n", 
+    //                 var_buffer_size * sizeof(double), var_names[i], rank);
+    //          continue;
+    //      }
          
-         // If variable has time dimension, each process reads/writes its portion
-         if (has_time_dim) {
-             ret = ncmpi_get_vara_all(ncid_in, i, var_start, var_count, var_buffer, var_buffer_size, nc2mpitype(var_type));
-             ERR(ret);
+    //      // If variable has time dimension, each process reads/writes its portion
+    //      if (has_time_dim) {
+    //          ret = ncmpi_get_vara_all(ncid_in, i, var_start, var_count, var_buffer, var_buffer_size, nc2mpitype(var_type));
+    //          ERR(ret);
              
-            //  ret = ncmpi_put_vara_all(ncid_out, out_var_ids[i], var_start, var_count, var_buffer, var_buffer_size, nc2mpitype(var_type));
-            //  ERR(ret);
-         } 
-         // If variable doesn't have time dimension, only process 0 reads/writes it
-         else {
+    //         //  ret = ncmpi_put_vara_all(ncid_out, out_var_ids[i], var_start, var_count, var_buffer, var_buffer_size, nc2mpitype(var_type));
+    //         //  ERR(ret);
+    //      } 
+    //      // If variable doesn't have time dimension, only process 0 reads/writes it
+    //      else {
             
-             ret = ncmpi_get_var_all(ncid_in, i, var_buffer, var_buffer_size, nc2mpitype(var_type));
-             ERR(ret);   
+    //          ret = ncmpi_get_var_all(ncid_in, i, var_buffer, var_buffer_size, nc2mpitype(var_type));
+    //          ERR(ret);   
 
-            //  ret = ncmpi_put_var_all(ncid_out, out_var_ids[i], var_buffer, var_buffer_size, nc2mpitype(var_type));
-            //  ERR(ret);   
-            }
-        //  else if (rank == 0) {
-        //      ret = ncmpi_get_vara(ncid_in, i, var_start, var_count, var_buffer, var_buffer_size, nc2mpitype(var_type));
-        //      ERR(ret);
+    //         //  ret = ncmpi_put_var_all(ncid_out, out_var_ids[i], var_buffer, var_buffer_size, nc2mpitype(var_type));
+    //         //  ERR(ret);   
+    //         }
+    //     //  else if (rank == 0) {
+    //     //      ret = ncmpi_get_vara(ncid_in, i, var_start, var_count, var_buffer, var_buffer_size, nc2mpitype(var_type));
+    //     //      ERR(ret);
              
-            //  ret = ncmpi_put_vara(ncid_out, out_var_ids[i], var_start, var_count, var_buffer, var_buffer_size, nc2mpitype(var_type));
-            //  ERR(ret);
-        //  }
+    //         //  ret = ncmpi_put_vara(ncid_out, out_var_ids[i], var_start, var_count, var_buffer, var_buffer_size, nc2mpitype(var_type));
+    //         //  ERR(ret);
+    //     //  }
          
-         free(var_buffer);
-     }
+    //      free(var_buffer);
+    //  }
      
      // Close files
      ret = ncmpi_close(ncid_in);
